@@ -1,0 +1,271 @@
+# APRNN code analysis
+
+## eval 1 (Pointwise MNIST Image Corruption Repair)
+
+### entrance: 
+```
+./run.py --eval 1 --tool=aprnn --net=3x100 --device=cpu
+-->
+eval_1_aprnn.py
+```
+---
+### Full pipeline
+```
+run.py
+   ↓
+eval_1_aprnn.py
+   ↓
+load pretrained MNIST model
+   ↓
+load corrupted MNIST repair set
+   ↓
+build symbolic network
+   ↓
+add repair constraints
+   ↓
+solve optimization with Gurobi
+   ↓
+construct repaired network
+   ↓
+evaluate accuracy
+```
+
+---
+### Inputs set
+```
+corruption = 'fog'
+GeneralizationSet = mnist.GeneralizationSet(corruption)[n_points:].reshape(*args.input_shape)
+DrawdownSet = mnist.DrawdownSet().reshape(*args.input_shape)
+RepairSet = mnist.RepairSet(corruption).reshape(*args.input_shape)
+```
+
+1. **RepairSet** is the set of buggy inputs used for modification (used to generate the repair constraints) so that:
+$$
+\forall x_i \in RepairSet, \quad f_{repaired}(x_i) = y_i
+$$
+
+2. **GeneralizationSet** contains buggy inputs not used for modification, measuring how well the repair generalizes to other corrupted inputs. Actually, inputs in currupted dataset can be diveded into two sets: RepairSet (first n points) and GeneralizationSet (remaining points).
+
+3. **DrawdownSet** contains clean inputs, measuring accuracy drop on clean data after repair.
+
+---
+### Symbolic network
+```
+N[k:].requires_symbolic_weight_and_bias(lb=-3., ub=3.)
+```
+This converts the parameters into symbolic parameters.
+Normally a weight is:
+$$
+W_{ij} \in \mathbb{R}
+$$
+After this call it becomes a symbolic variable:
+$$
+W_{ij}' = W_{ij} + \Delta W_{ij}
+$$
+or equivalently
+$$
+W_{ij}' \in [lb, ub]
+$$
+
+---
+### Repair constraints
+Symbolic output for the repair set is derived by:
+```
+images, labels = RepairSet.load(n_points)
+symbolic_output = N(images)
+```
+Then the repair constraints are imposed such that the symbolic output for the repair set must satisfy the output specification:
+```
+solver.add_constraints(symbolic_output.argmax(-1) == labels)
+```
+
+---
+### Repair optimization
+```
+output_deltas = (symbolic_output - original_output).flatten()
+param_deltas = N.parameter_deltas(concat=True)
+all_deltas = st.cat([output_deltas, param_deltas]).alias()
+obj = all_deltas.norm_ub('linf+l1_normalized')
+```
+1. **output_deltas** is the difference between the symbolic output and the original output for the repair set.
+$$
+\text{output\_deltas} = [\Delta y_1, \Delta y_2, ..., \Delta y_m]
+$$
+
+2. **param_deltas** is the change of parameters.
+$$
+\text{param\_deltas} = [\Delta W_{1}, \Delta W_{2}, ..., \Delta W_{k}]
+$$
+
+3. **all_deltas** is the concatenation of output_deltas and param_deltas.
+$$
+\text{all\_deltas} = [\text{output\_deltas}, \text{param\_deltas}]
+$$
+
+4. **obj** is the objective function to minimize, which is a combination of the infinity norm and the normalized L1 norm of all_deltas.
+$$
+\|d\|_\infty + \frac{1}{n}\|d\|_1
+$$
+where $d$ represents all_deltas and $n$ is the total number of deltas (output deltas + parameter deltas). So the objective is approximately:
+$$
+\min
+\left(
+\max_i |d_i|
++
+\frac{1}{n}\sum_i |d_i|
+\right)
+$$
+Purpose:
+- L∞ term → prevents any single large change
+- L1 term → keeps total change small
+Example:
+- $\Delta = (1, 1, 1, 1) \rightarrow L_1 = 4, L_\infty = 1$
+- $\Delta = (5, 0, 0, 0) \rightarrow L_1 = 5, L_\infty = 5$
+
+
+
+## eval 3 ( V-Polytope MNIST Image Corruption And Rotation Repair)
+
+### entrance: 
+```
+./run.py --eval 3 --device=cpu --tool=aprnn
+-->
+eval_3_aprnn.py
+```
+
+---
+### Target V-Polytope to repair
+```
+""" Number of vpolytopes to repair. """
+npolys = 5
+repair_label = 8
+```
+sets the number of V-polytopes to repair and the target label for repair. In this experiment, 5 V-polytopes will be repaired to be classified as label 8.
+
+```
+""" Repair parameters as introduced in the paper. """
+s = ((0, 4), (4, 6), (6, 8), (8, 10), (10, 12), (12, 14), (14, 16), (16, 18))
+k = 16
+```
+- **s** defines sequential repair slices for the shift phase.
+- **k** defines where the final classification repair begins.
+
+```
+testset = mnist.datasets.Dataset('identity', 'test').reshape(784).to(device,dtype)
+mnist_c = mnist.datasets.MNIST_C(corruption='fog', split='test').reshape(784).to(device,dtype)
+```
+- **testset** is the clean test set. ('identity' means no corruption)
+- **mnist_c** is the corrupted test set with 'fog' corruption.
+
+```
+_, rotset0 = mnist_c.filter_label(repair_label).misclassified(dnn)
+rotset = rotset0.rotate(degs=np.linspace(-30., 30., 7), scale=1.)
+generalization_set = rotset[npolys:]
+g2 = rotset0.rotate(degs=np.arange(-30., 30.1, .1), scale=1.)[:npolys]
+```
+- **rotset0**
+    - `.filter_label(repair_label)` filters only images whose true label is `repair_label` (label 8 in this case).
+    - `.misclassified(dnn)` splits them into correctly classified and misclassified sets by the original DNN.
+    - Therefore `rotset0` is the set of misclassified images with true label 8.
+- **rotset** is generated by rotating the images in `rotset0` by 7 evenly spaced angles between -30 and 30 degrees. This experiment uses 7 angles (-30, -20, -10, 0, 10, 20, 30) degrees for each image in `rotset0`.
+- **generalization_set** is the set of rotated images used for evaluating generalization, which consists of all rotated images except the first `npolys` (5) images.
+- **g2** is the set of rotated first `npolys` (5) images for repaired network evaluation. They are generated by rotating in finer angles (every 0.1 degree) from -30 to 30 degrees (-30, -29.9, ..., 29.9, 30 degrees).
+
+```
+imgs, labels = rotset.load(npolys)
+<-- target V-polytopes to repair
+```
+A **V-polytope** to be treated as a repair target is generated by:
+1. the buggy inputs pool `rotset0` damaged by fog corruption
+2. take the first `npolys` (5) images from `rotset0`
+3. rotate them by the specified angles from -30 to 30 degrees
+
+---
+### V-polytope repair (function: `vpoly_repair`)
+Big picture (shift and assert):
+- For each layer pair (l0, l1) in `s`:
+    1. symbolically forward through the network from layer l0 to l1
+    2. construct objective ($\Delta = \Delta_{params} + \Delta_{output}$)
+    3. solve optimization problem to minimize the objective
+- At the final pair (k, 16):
+    1. symbolically forward through the network from layer k to the output layer
+    2. construct objective ($\Delta = \Delta_{params} + \Delta_{output}$)
+    3. add classification constraints to ensure the repaired V-polytopes are classified as the target label
+    4. solve optimization problem to minimize the objective under the classification constraints
+
+---
+### `symbolic_forward_vpolytopes`
+
+When given a pair of layers (l0, l1), this function produce the symbolic output of the intermediate layers for the V-polytopes.
+Specifically, it concretely computes the output of layer l0 ( $N[:l0]$ ) and then symbolically forward from layer l0 to l1 ( $N[l0:l1]$ ) to get the symbolic output for the V-polytopes.
+```
+N.to(solver).repair().requires_symbolic_weight_and_bias(lb=lb, ub=ub)
+sy_vpolytopes = N.v(vpolytopes)
+```
+where `N` is the sliced network from layer l0 to l1 ( it is actually representing $N[l0:l1]$ ) and `vpolytopes` is the input V-polytopes to this sliced network ( it is actually representing the output of layer l0 $N[:l0]$ ).
+
+---
+### `N.v`
+
+This function does:
+1. it computes an activation pattern from the centroid of each v-polytope,
+2. then it propagates all vertices using that fixed pattern,
+3. and for ReLU it adds solver constraints forcing every vertex to stay consistent with that pattern.
+
+That means the same linear region is being enforced for the propagated v-polytope, at least with respect to the chosen pattern. The important details are in `Sequential.v`, `LinearLayer.v`, and `ReLU.v` / `ReLU.forward_symbolic`.
+
+----
+#### 1. Sequential.v
+in sytorch/nn/modules/container.py, Sequential.v
+
+```
+if pattern is None:
+    pattern = self.activation_pattern(centroid_of_vpolytopes(vpolytopes))
+```
+This computes the activation pattern from the centroid of each v-polytope.
+Then for each module, it calls
+```
+for module, module_pattern in vtqdm2(zip(self, pattern), total=len(self), desc="VSequential", leave=False):
+    vpolytopes = module.v(vpolytopes, pattern=module_pattern)
+```
+The pattern is reused while propagating the whole v-polytope through the network. This is the crucial part: the pattern is not derived independently for each vertex. **It is shared across the vertices of the same v-polytope**.
+
+#### 2. LinearLayer.v
+in sytorch/nn/modules/module.py, LinearLayer.v
+
+`LinearLayer.v` symbolically forwards all vertices according to the same affine map defined as the centroid of the v-polytope.
+
+#### 3. ReLU.v / ReLU.forward_symbolic
+in sytorch/nn/modules/activation.py, ReLU.v and ReLU.forward_symbolic
+
+`ReLU.v` and `ReLU.forward_symbolic` add solver constraints to enforce the shared activation pattern for all vertices of the v-polytoped during the symbolic propagation.
+
+---
+### `vpoly_repair`
+This function performs the V-polytope repair by iterating through the specified layer pairs in `s` and then finally the pair (k, 16) for classification repair.
+
+---
+For each pair (l0, l1) in `s`:
+1. it calls `symbolic_forward_vpolytopes` to get the symbolic output for the V-polytopes at layer l1.
+2. it constructs the objective function as a combination of parameter changes and output changes.
+    ```
+    param_delta = N[l0:l1].parameter_deltas(concat=True)
+    output_delta = (sy_vpolytopes - dnn[:l1].v(vpolytopes)).reshape(-1)
+    delta = param_delta.norm_ub('linf+l1_normalized') + output_delta.norm_ub('linf+l1_normalized')
+    ```
+3. it solves the optimization problem to minimize the objective.
+
+This process propagates the V-polytopes through the network while enforcing the same activation pattern, and minimizes the changes to parameters and outputs at each stage.
+
+---
+For the final pair (k, 16):
+1. it calls `symbolic_forward_vpolytopes` to get the symbolic output for the V-polytopes at the output layer.
+2. it constructs the objective function as a combination of parameter changes and output changes, similar to the previous pairs.
+3. it adds classification constraints to ensure the repaired V-polytopes are classified as the target label (label 8 in this case).
+4. it solves the optimization problem to minimize the objective under the classification constraints.
+```
+solver.solve(sy_vpolytopes.argmax(-1) == labels, minimize=delta, Method=Method)
+```
+
+
+

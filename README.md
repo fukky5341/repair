@@ -1,9 +1,42 @@
 # REPAIR
 
 ## Tools
-[REGLO](https://github.com/BU-DEPEND-Lab/REGLO)
-[APRNN](https://github.com/95616ARG/APRNN)
+- [REGLO](https://github.com/BU-DEPEND-Lab/REGLO)
+- [APRNN](https://github.com/95616ARG/APRNN)
 
-## Repair Procedure
+
+## Pointwise Repair
 1. get buggy inputs
-    - this 
+    - this is done in APRNN
+    - positive samples: $p = (p_1, p_2, ..., p_n)$
+    - negative samples: $n = (n_1, n_2, ..., n_m)$
+2. select layer to repair
+3. build subspace for k-th layer
+    - subspace is given from Dual formulation
+    - $ss = ss_1 \cup ss_2 \cup ... \cup ss_k$ such that $p_1, p_2, ..., p_n$ are in the subspace and the final output of entire region in $ss$ satisfy the output specification
+4. define the optimization problem
+    - objective: 
+        - minimize the parameter change
+        - minimize the distance between the negative samples $n$ and the subspace
+    - constraints:
+        - after modification, positive samples $p$ must be in the subspace
+5. solve the optimization problem
+6. if all negative samples are in the subspace, then stop; otherwise, iterate from step 2
+
+## Regionwise Repair
+1. get buggy regions
+    - this is done in APRNN
+    - positive regions: $P = P_1 \cup P_2 \cup ... \cup P_n$
+    - negative regions: $N = N_1 \cup N_2 \cup ... \cup N_m$
+2. select layer to repair
+3. build subspace for k-th layer
+    - subspace is given from Dual formulation
+    - $ss = ss_1 \cup ss_2 \cup ... \cup ss_k$ such that $P_1, P_2, ..., P_n$ are in the subspace and the final output of entire region in $ss$ satisfy the output specification
+4. define the optimization problem
+    - objective: 
+        - minimize the parameter change
+        - minimize the distance between the negative regions $N$ and the subspace
+    - constraints:
+        - after modification, positive regions $P$ must be in the subspace
+5. solve the optimization problem
+6. if all negative regions are in the subspace, then stop; otherwise, iterate from step 2
