@@ -30,17 +30,17 @@ class Region:
     score: Optional[float] = None
 
 
-def make_root_region(x_buggy: torch.Tensor, eps: float, target_label: int) -> Region:
-    lb = torch.clamp(x_buggy - eps, 0.0, 1.0)
-    ub = torch.clamp(x_buggy + eps, 0.0, 1.0)
+def make_root_region(x: torch.Tensor, eps: float, target_label: int) -> Region:
+    lb = torch.clamp(x - eps, 0.0, 1.0)
+    ub = torch.clamp(x + eps, 0.0, 1.0)
     return Region(lb=lb, ub=ub, target_label=target_label, depth=0)
 
 def make_root_region_set(inp_points: Dataset, eps: float, device):
     root_regions = []
     for i in range(len(inp_points)):
-        x_buggy = inp_points.images[i].unsqueeze(0).to(device)  # shape: (1, 784)
-        y_buggy = inp_points.labels[i].item()        # scalar
-        root_region = make_root_region(x_buggy=x_buggy, eps=eps, target_label=y_buggy)
+        x = inp_points.images[i].unsqueeze(0).to(device)  # shape: (1, 784)
+        y = inp_points.labels[i].item()        # scalar
+        root_region = make_root_region(x=x, eps=eps, target_label=y)
         root_regions.append(root_region)
     return root_regions
 
