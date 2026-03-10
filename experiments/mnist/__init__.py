@@ -4,11 +4,15 @@ from .datasets import *
 from .repair import *
 from .evaluation import *
 from experiments.base import get_workspace_root
+from pathlib import Path
 
 def model(name):
     filename = models.model_dict[name]
-    filepath = get_workspace_root() / "models" / "mnist" / filename
-    
+    filepath = Path(__file__).resolve().parents[2] / "models" / "mnist" / filename
+
+    if not filepath.exists():
+        raise FileNotFoundError(f"Model file not found: {filepath}")
+
     if name == '3x100_hardswish':
         network = st.nn.Sequential(
             st.nn.Linear(784, 100), st.nn.Hardswish(),
@@ -16,7 +20,7 @@ def model(name):
             st.nn.Linear(100,  10)
         ).load(filepath)
 
-    elif name in [ '3x100_gelu' ]:
+    elif name in ['3x100_gelu']:
         network = st.nn.Sequential(
             st.nn.Linear(784, 100), st.nn.GELU(),
             st.nn.Linear(100, 100), st.nn.GELU(),

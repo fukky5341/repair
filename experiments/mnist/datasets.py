@@ -6,6 +6,7 @@ import numpy as np
 from typing import Literal, TypeVar, Callable, Tuple, overload
 import copy
 from tqdm.auto import tqdm
+from pathlib import Path
 
 import sytorch
 from experiments.base import get_workspace_root
@@ -23,11 +24,18 @@ class _IdentityIndices:
 
 T = TypeVar('T', bound='Dataset')
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self: T, corruption: str, split: Literal['test', 'train'], root = (get_workspace_root() / 'data' / 'mnist_c').as_posix()):
-        if not pathlib.Path(root).exists():
+    def __init__(self: T, corruption: str, split: Literal['test', 'train'], root = None):
+        if root is None:
+            root = Path(__file__).resolve().parents[2] / "data" / "mnist_c"
+
+        root = Path(root)
+
+        if not root.exists():
             raise RuntimeError(
-                f"\n\nMNIST-C dataset ({root}) doesn't exist.\nPlease run `make datasets-mnist`.\n\n"
+                f"\n\nMNIST-C dataset ({root}) doesn't exist.\n"
+                f"Expected location: repair/data/mnist_c\n"
             )
+        
         self.corruption = corruption
         self.split = split
         self.images = torch.from_numpy(
