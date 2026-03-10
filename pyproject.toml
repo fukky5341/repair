@@ -3,9 +3,28 @@ name = "repair"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10,<3.13"
 dependencies = [
-    "gurobipy>=13.0.1",
-    "ipykernel>=7.2.0",
-    "jupyter>=1.1.1",
+    "auto-lirpa",
+    "gurobipy<13.0.0",
+    "matplotlib>=3.10.8",
+    "ml-dtypes>=0.5.4",
+    "numpy>=1.26.4,<2.0",
+    "onnx>=1.19.0",
+    "onnx2torch>=1.5.15",
+    "pandas>=2.3.3",
+    "scipy>=1.15.3",
+    "seaborn>=0.13.2",
+    "setuptools>=80.9.0",
+    "torch>=2.0,<2.4",
+    "z3>=0.2.0",
+    "z3-solver>=4.16.0.0",
+]
+
+[tool.uv.sources]
+auto-lirpa = { git = "https://github.com/Verified-Intelligence/auto_LiRPA.git" }
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.1.0",
 ]
