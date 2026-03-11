@@ -477,6 +477,15 @@ class IndividualBounds:
         with torch.no_grad():
             self.run_backsubstitution_individual(save_coeffs=False)
 
+        # logging before optimization
+        if verbose:
+            print("Initial bounds (before alpha optimization):")
+            for idx, (lb, ub) in enumerate(zip(self.lbs, self.ubs)):
+                print(f"Layer {idx}: lb mean = {lb.mean().item():.6f}, ub mean = {ub.mean().item():.6f}")
+            print("Output layer")
+            print(f"  lb: {self.lbs[-1]}")
+            print(f"  ub: {self.ubs[-1]}")
+
         if optimize_alpha:
             self.initialize_alpha()
             return self.optimize_alpha(
