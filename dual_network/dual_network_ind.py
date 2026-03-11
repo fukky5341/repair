@@ -20,7 +20,7 @@ class DualNetwork_Ind:
 
     def __init__(self, C, ori_net, shapes, lbs, ubs, relu_precise=False, alpha_params=None):
         self.dual_net = []
-        self.As = []
+        self.As = []  # As[::-1]: [A(L0), A(R1), A(L2), A(R3), ...]
 
         if C.dim() == 1:
             C = C.unsqueeze(0)
@@ -198,3 +198,81 @@ class DualNetwork_Ind:
 
         # final rebuild after optimization
         self.rebuild_As()
+
+    # ------------------------------------------------------------
+    # Sliced dual network
+    # ------------------------------------------------------------
+    """
+    Assumption:
+        affine and relu layers alternate (e.g., Linear(0) -> ReLU(1) -> Linear(2) -> ReLU(3) -> ...)
+
+    Given layer index of Linear layer to repair is Li:
+        - As[::-1]: [A(L0), A(R1), ..., A(Li), A(Ri+1), A(Li+2), A(Ri+3), ...]
+        - necessary As: As[::-1][Li+2:] = [A(Li+2), A(Ri+3), ...]
+        - dual layers: [L0, R1, ..., Li, Ri+1, Li+2, Ri+3, ...]
+        - necessary dual layers: dual_net[Li+2:] = [Li+2, Ri+3, ...]
+    
+    Objective for sliced dual network (DualNet[Li+2:]):
+        obj = sum(constant term from A(Ri+3), A(Li+4), ...) 
+                + (A(Li+2) term that depends on the ouput bounds N[:Li+2] = N[L0, ..., Li, Ri+1]) <-- like input obj
+    """
+    def sliced_As(self, slice_layer_idx):
+        sliced_As = self.As[::-1][slice_layer_idx:]
+        return sliced_As[::-1]  # reverse back to match dual_net order
+    
+    def sliced_dual_net(self, slice_layer_idx):
+        sliced_dual_net = self.dual_net[slice_layer_idx:]
+        return sliced_dual_net
+    
+    def sliced_input_objective(self, As0, lb, ub):
+        '''
+        As0: 1D
+        lb, ub: 1D
+        '''
+        As0_pos  = torch.clamp(As0, min=0)
+        A_neg_abs = -torch.clamp(As0, max=0)
+        obj = -As0_pos.matmul(ub) + A_neg_abs.matmul(lb)
+        return obj
+    
+    def sliced_subseq_layer_objective(self, sliced_dual_net, sliced_As):
+        total_obj = 0
+        reversed_sliced_As = sliced_As[::-1]
+        for i, layer in enumerate(sliced_dual_net):
+            obj = layer.objective(reversed_sliced_As[i + 1])
+            total_obj = total_obj + obj
+        return total_obj
+    
+    def sliced_objective(self, repaired_layer_idx, lb, ub, subseq_layers_obj_keep=None):
+        ''' 
+        repaired_layer_idx: index of the repaired affine layer (Li)
+        lb, ub: 
+            - neuron bounds for the output of the repaired layer (N[:Li+2] = N[..., Li, Ri+1])
+            - 1D shape (no batch)
+        As:
+            - 1D shape (no batch)
+        
+        ------------------------------------------------------------
+        returns:
+            obj = sum(constant term from A(Ri+3), A(Li+4), ...) + (A(Li+2) term that depends on the ouput bounds N[:Li+2])
+        '''
+        assert As0.dim() == 1, "sliced_objective currently supports only non-batched As"
+        assert lb.dim() == 1 and ub.dim() == 1
+        
+        # As
+        sliced_As = self.sliced_As(repaired_layer_idx + 2)
+        # dual net
+        sliced_dual_net = self.sliced_dual_net(repaired_layer_idx + 2)
+
+        # --- compute objective ---
+        # sum(constant term from Ri+3, Li+4, ...)
+        if subseq_layers_obj_keep is not None:
+            subseq_layers_obj = subseq_layers_obj_keep
+        else:
+            subseq_layers_obj = self.sliced_subseq_layer_objective(sliced_dual_net, sliced_As)
+        # (Li+2 term that depends on the ouput bounds N[:Li+2])
+        As0 = sliced_As[::-1][0]  # A(Li+2)
+        sliced_input_obj = self.sliced_input_objective(As0, lb, ub)
+        # total obj
+        total_obj = subseq_layers_obj + sliced_input_obj
+
+        return total_obj

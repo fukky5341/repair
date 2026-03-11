@@ -532,4 +532,4 @@ class IndividualBounds:
         if optimize_alpha:
             dual_net.optimize_alpha(steps=alpha_steps, lr=alpha_lr, verbose=verbose)
 
-        return dual_net.get_minimized_objective()
+        return dual_net.get_minimized_objective(), dual_net
