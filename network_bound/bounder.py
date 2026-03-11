@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from dual_network.dual_network_ind import DualNetwork_Ind
+
 
 
 """ helper """
@@ -141,6 +143,8 @@ class IndividualBounds:
 
         for p in self.net.parameters():
             p.requires_grad_(False)
+
+        self.dual_network = None
 
     # ------------------------------------------------------------
     # shape helpers
@@ -500,3 +504,32 @@ class IndividualBounds:
             return self.run_backsubstitution_individual(save_coeffs=True)
 
         return self.lbs, self.ubs
+    
+    # ------------------------------------------------------------
+    # Dual network interaction
+    # ------------------------------------------------------------
+    def build_dual_network(self, C, relu_precise=False):
+        # keep alpha params optimized during backsubstitution
+        alpha_params = {
+            k: torch.nn.Parameter(v.detach().clone())
+            for k, v in self.alpha_params.items()
+        }
+        self.dual_network = DualNetwork_Ind(
+            C=C,
+            ori_net=self.net,
+            shapes=self.shapes,
+            lbs=[x.detach() for x in self.lbs],
+            ubs=[x.detach() for x in self.ubs],
+            relu_precise=relu_precise,
+            alpha_params=alpha_params,
+        )
+        self.dual_network.build_dual_network_individual()
+        return self.dual_network
+    
+    def compute_dual_min_objective(self, C, relu_precise=False, optimize_alpha=False, alpha_steps=30, alpha_lr=1e-2, verbose=False):
+        dual_net = self.build_dual_network(C=C, relu_precise=relu_precise)
+
+        if optimize_alpha:
+            dual_net.optimize_alpha(steps=alpha_steps, lr=alpha_lr, verbose=verbose)
+
+        return dual_net.get_minimized_objective()

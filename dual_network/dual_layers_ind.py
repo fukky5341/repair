@@ -154,17 +154,6 @@ class DualFlatten_Ind:
 
 
 class DualRelu_Ind:
-    """
-    ReLU dual layer with optional alpha lower slope.
-
-    If alpha is provided:
-        unstable lower slope = clamp(alpha, 0, 1)
-
-    If alpha is None:
-        - relu_precise=False: lower slope on unstable uses upper secant slope
-        - relu_precise=True : lower slope uses 0/1 heuristic
-    """
-
     def __init__(self, inp_lb, inp_ub, relu_precise=False, alpha=None):
         self.inp_lb = inp_lb
         self.inp_ub = inp_ub
@@ -194,7 +183,6 @@ class DualRelu_Ind:
                     torch.zeros_like(inp_lb),
                 )
             else:
-                # relaxed mode: use secant
                 lower_slope = upper_slope
 
         if inp_A.dim() == 1:
@@ -228,15 +216,6 @@ class DualRelu_Ind:
         return new_inp_A
 
     def objective(self, A):
-        """
-        Intercept contribution from ReLU upper relaxation.
-
-        For unstable ReLU:
-            y <= lambda_u x + mu_u
-            mu_u = -u l / (u-l)
-
-        In the dual objective, positive coefficients contribute this intercept.
-        """
         temp_coef = (self.inp_ub * self.inp_lb) / (self.inp_ub - self.inp_lb + 1e-15)
         coef = torch.where(self.unstable_mask, temp_coef, torch.zeros_like(temp_coef))
 

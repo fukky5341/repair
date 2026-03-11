@@ -13,13 +13,9 @@ class DualNetwork_Ind:
     C:
         shape (out_dim,) or (batch_specs, out_dim)
 
-    As:
-        backward propagated coefficients.
-        If C has shape (m, out_dim), then each A has shape (m, dim).
-
-    This version:
-    - uses nn.Sequential / isinstance(...)
-    - supports alpha-based ReLU lower slope
+    This version supports:
+    - nn.Sequential
+    - alpha re-optimization inside the dual network
     """
 
     def __init__(self, C, ori_net, shapes, lbs, ubs, relu_precise=False, alpha_params=None):
@@ -27,14 +23,17 @@ class DualNetwork_Ind:
         self.As = []
 
         if C.dim() == 1:
-            C = C.unsqueeze(0)  # (1, out_dim)
+            C = C.unsqueeze(0)
 
-        self.C = C
+        self.C = C.detach() if C.requires_grad else C
         self.batch_size = C.size(0)
         self.ori_net = ori_net
         self.shapes = shapes
-        self.lbs = lbs
-        self.ubs = ubs
+
+        # IMPORTANT: treat neuron bounds as constants during dual alpha optimization
+        self.lbs = [x.detach() for x in lbs]
+        self.ubs = [x.detach() for x in ubs]
+
         self.relu_precise = relu_precise
         self.alpha_params = {} if alpha_params is None else alpha_params
 
@@ -75,14 +74,18 @@ class DualNetwork_Ind:
             dual_net.append(dual_layer)
 
         self.dual_net = dual_net
+        self.rebuild_As()
+        return
 
+    def rebuild_As(self):
+        """
+        Recompute backward coefficients As using current alpha values.
+        """
         As = [-self.C]
-        for r_layer in reversed(dual_net):
+        for r_layer in reversed(self.dual_net):
             curr_A = r_layer.T(As)
             As.append(curr_A)
-
         self.As = As
-        return
 
     def squeeze_As_to_1d(self):
         def _maybe_squeeze(A):
@@ -96,15 +99,8 @@ class DualNetwork_Ind:
 
     def get_minimized_objective(self):
         """
-        Returns minimized dual objective for the given C.
-
-        dual_net: [dual_layer0, dual_layer1, ..., dual_layerL]
-        As: [-C, A_L, A_{L-1}, ..., A_input]
-
-        reversed(As):
-            A_input, ..., A_L, -C
+        Returns minimized dual objective for the current C and current alpha.
         """
-
         if len(self.dual_net) + 1 != len(self.As):
             raise ValueError("Length mismatch between dual_net and As")
 
@@ -125,13 +121,6 @@ class DualNetwork_Ind:
             return total_objective
 
     def input_objective(self, A):
-        """
-        Input-domain objective for box-bounded input.
-
-        For minimizing C f(x), the dual input contribution is:
-            -A^+ ub + (-A^-) lb
-        matching your current dual formulation.
-        """
         if A is None:
             return torch.tensor(0.0, device=self.C.device, dtype=self.C.dtype)
 
@@ -156,8 +145,9 @@ class DualNetwork_Ind:
             raise ValueError(f"Expected A to have 1 or 2 dims, got {A.dim()}")
 
     # ------------------------------------------------------------
-    # alpha optimization
+    # alpha optimization helpers
     # ------------------------------------------------------------
+
     def get_alpha_parameters(self):
         """
         Collect alpha tensors from DualRelu_Ind layers.
