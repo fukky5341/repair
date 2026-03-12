@@ -200,7 +200,7 @@ class DualNetwork_Ind:
         self.rebuild_As()
 
     # ------------------------------------------------------------
-    # Sliced dual network
+    # Slicing dual network
     # ------------------------------------------------------------
     """
     Assumption:
@@ -257,7 +257,7 @@ class DualNetwork_Ind:
         '''
         assert As0.dim() == 1, "sliced_objective currently supports only non-batched As"
         assert lb.dim() == 1 and ub.dim() == 1
-        
+
         # As
         sliced_As = self.sliced_As(repaired_layer_idx + 2)
         # dual net
