@@ -53,6 +53,8 @@ $$
 ```
 N[k:].requires_symbolic_weight_and_bias(lb=-3., ub=3.)
 ```
+This is done in sytorch/nn/modules/container.py, Sequential.requires_symbolic_weight_and_bias. 
+
 This converts the parameters into symbolic parameters.
 Normally a weight is:
 $$
@@ -202,17 +204,28 @@ Specifically, it concretely computes the output of layer l0 ( $N[:l0]$ ) and the
 N.to(solver).repair().requires_symbolic_weight_and_bias(lb=lb, ub=ub)
 sy_vpolytopes = N.v(vpolytopes)
 ```
-where `N` is the sliced network from layer l0 to l1 ( it is actually representing $N[l0:l1]$ ) and `vpolytopes` is the input V-polytopes to this sliced network ( it is actually representing the output of layer l0 $N[:l0]$ ).
+- where `N` is the sliced network from layer l0 to l1 ( it is actually representing $N[l0:l1]$ ) and `vpolytopes` is the input V-polytopes to this sliced network ( it is actually representing the output of layer l0 $N[:l0]$ ).
+
+- `.requires_symbolic_weight_and_bias(lb=lb, ub=ub)` makes the first layer weight and all layers' bias symbolic.
 
 ---
 ### `N.v`
 
 This function does:
-1. it computes an activation pattern from the centroid of each v-polytope,
+1. it computes an activation pattern from the centroid of each v-polytope (`Sequential.v`),
 2. then it propagates all vertices using that fixed pattern,
 3. and for ReLU it adds solver constraints forcing every vertex to stay consistent with that pattern.
 
 That means the same linear region is being enforced for the propagated v-polytope, at least with respect to the chosen pattern. The important details are in `Sequential.v`, `LinearLayer.v`, and `ReLU.v` / `ReLU.forward_symbolic`.
+
+The order it goes through the function calls is:
+```
+N.v(vpolytopes)
+   ↓
+Sequential.v(vpolytopes)
+   ↓
+LinearLayer.v(vpolytopes, pattern) or ReLU.v(vpolytopes, pattern)
+```
 
 ----
 #### 1. Sequential.v
