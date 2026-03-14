@@ -30,10 +30,10 @@ def get_concrete_bounds(
         verbose=verbose
     )
 
-def check_violation(netS, lb, ub, spec):
+def check_violation(net, lb, ub, spec):
     # approximate checking
     bounder = IndividualBounds(
-        net = netS,
+        net = net,
         in_lb = lb,
         in_ub = ub,
         device = lb.device,

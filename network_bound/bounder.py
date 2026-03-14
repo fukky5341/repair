@@ -507,28 +507,80 @@ class IndividualBounds:
     # ------------------------------------------------------------
     # Dual network interaction
     # ------------------------------------------------------------
-    def build_dual_network(self, C, relu_precise=False):
+    # helper
+    def filter_satisfied_specs(self, C, out_lb, out_ub):
+        """
+        Filter out already-satisfied rows of C using independent output bounds.
+
+        Args:
+            C:
+                shape (out_dim,) or (num_specs, out_dim)
+            out_lb, out_ub:
+                output lower/upper bounds, shape (out_dim,)
+
+        Returns:
+            filtered_C, keep_mask, satisfied_mask
+        """
+        if C.dim() == 1:
+            C = C.unsqueeze(0)
+
+        C_pos = torch.clamp(C, min=0)
+        C_neg = torch.clamp(C, max=0)
+
+        # lower bound on C f(x)
+        spec_lb = (C_pos * out_lb.unsqueeze(0)).sum(dim=1) + (C_neg * out_ub.unsqueeze(0)).sum(dim=1)
+        satisfied_mask = spec_lb >= 0  # shape (num_specs,)
+
+        keep_mask = ~satisfied_mask
+        filtered_C = C[keep_mask]
+
+        return filtered_C, spec_lb
+    
+    def build_dual_network(self, C, relu_precise=False, perform_dual=False):
         # keep alpha params optimized during backsubstitution
         alpha_params = {
             k: torch.nn.Parameter(v.detach().clone())
             for k, v in self.alpha_params.items()
         }
         if self.lbs is None or self.ubs is None:
-            _, _ = self.run_backsubstitution_individual(save_coeffs=False)
+            lbs, ubs = self.run_backsubstitution_individual(save_coeffs=False)
+        else:
+            lbs, ubs = self.lbs, self.ubs
+
+        # Filter out already-satisfied specs
+        if perform_dual:
+            # skip filtering by backsubstitution bounds
+            # for debugging
+            filtered_C = C
+            spec_lb = None
+        else:
+            out_lb, out_ub = lbs[-1], ubs[-1]
+            filtered_C, spec_lb = self.filter_satisfied_specs(
+                C=C,
+                out_lb=out_lb,
+                out_ub=out_ub,
+            )
+
+            if filtered_C.numel() == 0:
+                self.dual_network = None
+                return None, spec_lb
+
         self.dual_network = DualNetwork_Ind(
-            C=C,
+            C=filtered_C,
             ori_net=self.net,
             shapes=self.shapes,
-            lbs=[x.detach() for x in self.lbs],
-            ubs=[x.detach() for x in self.ubs],
+            lbs=[x.detach() for x in lbs],
+            ubs=[x.detach() for x in ubs],
             relu_precise=relu_precise,
             alpha_params=alpha_params,
         )
         self.dual_network.build_dual_network_individual()
-        return self.dual_network
+        return self.dual_network, spec_lb
     
     def compute_dual_min_objective(self, C, relu_precise=False, optimize_alpha=True, alpha_steps=30, alpha_lr=1e-2, verbose=False):
-        dual_net = self.build_dual_network(C=C, relu_precise=relu_precise)
+        dual_net, spec_lb_backsub = self.build_dual_network(C=C, relu_precise=relu_precise)
+        if dual_net is None:
+            return spec_lb_backsub, None
 
         if optimize_alpha:
             dual_net.optimize_alpha(steps=alpha_steps, lr=alpha_lr, verbose=verbose)

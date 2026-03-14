@@ -159,16 +159,21 @@ def repair_regions(repair_label, dnn, num_regions, neg_eps, pos_eps, device, dty
             center_point = repaired_points.images[i].unsqueeze(0),
             lb = repaired_points.images[i].unsqueeze(0) - neg_eps,
             ub = repaired_points.images[i].unsqueeze(0) + neg_eps,
-            target_label = repair_label,
+            target_label = repaired_points.labels[i].item(),
             data_id=repaired_indices[i]
         )
         base_region = Region(
             center_point = base_points.images[i].unsqueeze(0),
             lb = base_points.images[i].unsqueeze(0) - pos_eps,
             ub = base_points.images[i].unsqueeze(0) + pos_eps,
-            target_label = repair_label,
+            target_label = base_points.labels[i].item(),
             data_id=repaired_indices[i]
         )
+        # add spec
+        num_classes = dnn(base_points.images[:1]).shape[1]  # assuming output shape is (1, num_classes)
+        repaired_region.add_spec(num_classes, repaired_region.target_label)
+        base_region.add_spec(num_classes, base_region.target_label)
+
         repaired_regions.append(repaired_region)
         base_regions.append(base_region)
 
