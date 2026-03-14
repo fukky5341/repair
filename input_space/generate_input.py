@@ -2,6 +2,7 @@ from experiments import mnist
 import torch
 import numpy as np
 import copy
+from .region import Region
 
 
 def _normalize_positions(keep_pos):
@@ -147,3 +148,28 @@ def repair_points(repair_label, dnn, device, dtype):
         neg_damaged_points_from_pos_clean(pos_clean_points, neg_damaged_points)
 
     return repaired_indices, repaired_points, base_points
+
+def repair_regions(repair_label, dnn, num_regions, neg_eps, pos_eps, device, dtype):
+    repaired_indices, repaired_points, base_points = repair_points(repair_label, dnn, device, dtype)
+
+    repaired_regions = []
+    base_regions = []
+    for i in range(num_regions):
+        repaired_region = Region(
+            center_point = repaired_points.images[i].unsqueeze(0),
+            lb = repaired_points.images[i].unsqueeze(0) - neg_eps,
+            ub = repaired_points.images[i].unsqueeze(0) + neg_eps,
+            target_label = repair_label,
+            data_id=repaired_indices[i]
+        )
+        base_region = Region(
+            center_point = base_points.images[i].unsqueeze(0),
+            lb = base_points.images[i].unsqueeze(0) - pos_eps,
+            ub = base_points.images[i].unsqueeze(0) + pos_eps,
+            target_label = repair_label,
+            data_id=repaired_indices[i]
+        )
+        repaired_regions.append(repaired_region)
+        base_regions.append(base_region)
+
+    return repaired_regions, base_regions

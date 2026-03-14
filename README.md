@@ -70,10 +70,22 @@
 
 
 ## How to get subspace
-1. propagate the positive inputs to the k-th layer and get approximate lb and ub for $N[:k]$.
+1. propagate the positive inputs to the k-th layer and get approximate lb and ub for $N[:k+1]$ (output of k-th layer).
 2. compute gradient in the direction to violating the output constraints, such as $y_t - y_i < 0$
 3. expand lb and ub by some margin to get the larger subspace.
     - by applying bounding method to the $lb' = lb - margin$ and $ub' = ub + margin$.
     - if the output specification is satisfied, try to further expand the subspace by increasing the margin.
     - if the output specification is not satisfied, try to shrink the subspace by decreasing the margin.
 
+### expansion strategy
+I the classification task, a violation function can be defined as $g(z) = y_t - y_i$, where $y_t$ is the output for the true class and $y_i$ is the output for the incorrect class. At the safe region, we have $g(z) > 0$, and at the violated region, we have $g(z) \leq 0$.
+Then, we can use the first-order Taylor expansion to estimate the change in $g(z)$ when we expand the subspace by $\Delta z$:
+$$
+g(z + \Delta z) \approx g(z) + \nabla g(z)^T \Delta z
+$$
+If we want the largest safe step $t$:
+$$
+g(z) + \nabla g(z)^T (t d) = 0 \\
+t = -\frac{g(z)}{\nabla g(z)^T d}
+$$
+This gives a first-order estimate of distance to violation boundary.

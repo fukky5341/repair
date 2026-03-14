@@ -476,19 +476,18 @@ class IndividualBounds:
     # ------------------------------------------------------------
     # public entry point
     # ------------------------------------------------------------
-
     def run(self, optimize_alpha=False, alpha_steps=20, alpha_lr=1e-1, save_coeffs=False, verbose=False):
         with torch.no_grad():
             self.run_backsubstitution_individual(save_coeffs=False)
 
-        # logging before optimization
-        if verbose:
-            print("Initial bounds (before alpha optimization):")
-            for idx, (lb, ub) in enumerate(zip(self.lbs, self.ubs)):
-                print(f"Layer {idx}: lb mean = {lb.mean().item():.6f}, ub mean = {ub.mean().item():.6f}")
-            print("Output layer")
-            print(f"  lb: {self.lbs[-1]}")
-            print(f"  ub: {self.ubs[-1]}")
+        # # logging before optimization
+        # if verbose:
+        #     print("Initial bounds (before alpha optimization):")
+        #     for idx, (lb, ub) in enumerate(zip(self.lbs, self.ubs)):
+        #         print(f"Layer {idx}: lb mean = {lb.mean().item():.6f}, ub mean = {ub.mean().item():.6f}")
+        #     print("Output layer")
+        #     print(f"  lb: {self.lbs[-1]}")
+        #     print(f"  ub: {self.ubs[-1]}")
 
         if optimize_alpha:
             self.initialize_alpha()
@@ -514,6 +513,8 @@ class IndividualBounds:
             k: torch.nn.Parameter(v.detach().clone())
             for k, v in self.alpha_params.items()
         }
+        if self.lbs is None or self.ubs is None:
+            _, _ = self.run_backsubstitution_individual(save_coeffs=False)
         self.dual_network = DualNetwork_Ind(
             C=C,
             ori_net=self.net,
@@ -526,7 +527,7 @@ class IndividualBounds:
         self.dual_network.build_dual_network_individual()
         return self.dual_network
     
-    def compute_dual_min_objective(self, C, relu_precise=False, optimize_alpha=False, alpha_steps=30, alpha_lr=1e-2, verbose=False):
+    def compute_dual_min_objective(self, C, relu_precise=False, optimize_alpha=True, alpha_steps=30, alpha_lr=1e-2, verbose=False):
         dual_net = self.build_dual_network(C=C, relu_precise=relu_precise)
 
         if optimize_alpha:
