@@ -160,12 +160,13 @@ def update_subspace(netF, netS, P,
     # compute concrete bounds for the positive region
     lb, ub = get_concrete_bounds(netF, inF_lb, inF_ub)
     # check violation for initial subspace
-    if check_violation(netS, subsp_lb, subsp_ub, P.spec):
+    inS_lb, inS_ub = lb[-1].clone(), ub[-1].clone()  # input bounds for netS
+    if check_violation(netS, inS_lb, inS_ub, P.spec):
         # if violated
-        return subsp_lb, subsp_ub  # return the initial subspace (no enlargement)
+        return inS_lb, inS_ub  # return the initial subspace (no enlargement)
     
     # initialize the subspace with the bounds
-    subsp_lb, subsp_ub = lb.clone(), ub.clone()
+    sub_lb, sub_ub = lb.clone(), ub.clone()
 
     # ---- Stage 1: gradient expansion ----
     if use_gradient:

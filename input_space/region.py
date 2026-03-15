@@ -32,11 +32,11 @@ class Region:
     score: Optional[float] = None
 
 
-    def add_spec(self, num_classes, target_label):
+    def add_spec(self, num_classes, target_label, device, dtype):
         '''
         c_i = y_t - y_i for i != t
         C = [c_1, c_2, ..., c_{t-1}, c_{t+1}, ..., c_n]  # shape: (num_constraints, num_outputs)
         '''
-        C = torch.eye(num_classes)
+        C = torch.eye(num_classes, device=device, dtype=dtype)
         C = C[target_label:target_label+1] - torch.cat([C[:target_label], C[target_label+1:]], dim=0)
         self.spec = Spec(C=C, target_label=target_label)

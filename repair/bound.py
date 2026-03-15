@@ -8,7 +8,7 @@ from network_bound.bounder import IndividualBounds
 def get_concrete_bounds(
         net, in_lb, in_ub,
         optimize_alpha=True,
-        alpha_step=20,
+        alpha_steps=20,
         alpha_lr=1e-1,
         save_coeffs=False,
         verbose=False
@@ -17,14 +17,14 @@ def get_concrete_bounds(
 
     bounder = IndividualBounds(
         net = net,
-        in_lb = in_lb,
-        in_ub = in_ub,
+        lb_inp = in_lb,
+        ub_inp = in_ub,
         device = in_lb.device,
     )
 
     return bounder.run(
         optimize_alpha=optimize_alpha,
-        alpha_step=alpha_step,
+        alpha_steps=alpha_steps,
         alpha_lr=alpha_lr,
         save_coeffs=save_coeffs,
         verbose=verbose
@@ -34,8 +34,8 @@ def check_violation(net, lb, ub, spec):
     # approximate checking
     bounder = IndividualBounds(
         net = net,
-        in_lb = lb,
-        in_ub = ub,
+        lb_inp = lb,
+        ub_inp = ub,
         device = lb.device,
     )
 
