@@ -38,6 +38,34 @@ class Subspace:
     data_id: int
 
 
+# ==== Debug ====
+def debug_subspace(stage, lb, ub, netS, spec, step=None):
+    """
+    Print useful information about the current subspace.
+    """
+
+    center = (lb + ub) / 2
+    width = ub - lb
+
+    is_violated = check_violation(netS, lb, ub, spec)
+
+    print("\n[Subspace Debug]")
+    print(f"stage: {stage}")
+    if step is not None:
+        print(f"iter: {step}")
+
+    print(f"center norm: {center.norm().item():.6f}")
+    print(f"avg width: {width.mean().item():.6f}")
+    print(f"max width: {width.max().item():.6f}")
+    print(f"min width: {width.min().item():.6f}")
+
+    print(f"violation: {is_violated}")
+
+    # show first few dimensions
+    k = min(5, lb.shape[0])
+    print("lb[:5]:", lb[:k].detach().cpu().numpy())
+    print("ub[:5]:", ub[:k].detach().cpu().numpy())
+
 
 # ==== Update subspace ====
 # --- helper ---
@@ -154,33 +182,51 @@ def gradient_expand(netS, lb, ub, spec,
 
 def update_subspace(netF, netS, P, 
                     subsp_lr=1e-2, max_iters=20, subsp_lr_decay=0.5,
-                    use_gradient=True, use_uniform_scale=True, use_per_dim_scale=False):
+                    use_gradient=True, use_uniform_scale=True, use_per_dim_scale=False,
+                    # use_gradient=False, use_uniform_scale=False, use_per_dim_scale=True,
+                    debug=True):
     # input bounds for netF
     inF_lb, inF_ub = P.lb.clone(), P.ub.clone()
     # compute concrete bounds for the positive region
     lb, ub = get_concrete_bounds(netF, inF_lb, inF_ub)
     # check violation for initial subspace
     inS_lb, inS_ub = lb[-1].clone(), ub[-1].clone()  # input bounds for netS
+
+    if debug:
+        debug_subspace("initial", inS_lb, inS_ub, netS, P.spec)
+
     if check_violation(netS, inS_lb, inS_ub, P.spec):
         # if violated
         return inS_lb, inS_ub  # return the initial subspace (no enlargement)
     
     # initialize the subspace with the bounds
-    sub_lb, sub_ub = lb.clone(), ub.clone()
+    sub_lb, sub_ub = inS_lb.clone(), inS_ub.clone()
 
     # ---- Stage 1: gradient expansion ----
     if use_gradient:
         sub_lb, sub_ub = gradient_expand(netS, sub_lb, sub_ub, P.spec)
 
+        if debug:
+            debug_subspace("after gradient expansion", sub_lb, sub_ub, netS, P.spec)
+
     # ---- Stage 2: uniform scaling ----
     if use_uniform_scale:
+        keep_lb, keep_ub = sub_lb.clone(), sub_ub.clone()
         alpha = maximal_uniform_scale(netS, sub_lb, sub_ub, P.spec)
-
         sub_lb, sub_ub = scale_box(sub_lb, sub_ub, alpha)
+        is_violated = check_violation(netS, sub_lb, sub_ub, P.spec)
+        if is_violated:
+            sub_lb, sub_ub = keep_lb, keep_ub  # revert to the last non-violating subspace
+
+        if debug:
+            debug_subspace("after uniform scaling", sub_lb, sub_ub, netS, P.spec, step=alpha)
 
     # ---- Stage 3: per-dimension scaling ----
     if use_per_dim_scale:
         sub_lb, sub_ub = per_dimension_scale(netS, sub_lb, sub_ub, P.spec)
+
+        if debug:
+            debug_subspace("after per-dimension scaling", sub_lb, sub_ub, netS, P.spec)
 
     return sub_lb, sub_ub
 
